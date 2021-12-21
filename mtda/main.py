@@ -25,6 +25,7 @@ import zmq
 from mtda.console.input import ConsoleInput
 from mtda.console.logger import ConsoleLogger
 from mtda.console.remote import RemoteConsole, RemoteMonitor
+from mtda.discovery import ServiceListener
 from mtda.storage.writer import AsyncImageWriter
 import mtda.constants as CONSTS
 import mtda.keyboard.controller
@@ -86,6 +87,9 @@ class MultiTenantDeviceAccess:
         self._lock_owner = None
         self._lock_expiry = None
         self._power_expiry = None
+        self._service_listener = None
+        self._service_thread = None
+        self._services = {}
         self._session_lock = threading.Lock()
         self._session_timer = None
         self._sessions = {}
@@ -1159,8 +1163,26 @@ class MultiTenantDeviceAccess:
             print('power controller "%s" could not be found/loaded!' % (
                 variant), file=sys.stderr)
 
+    def probe_services(self):
+        self.mtda.debug(3, "main.probe_services()")
+
+        self._service_listener = ServiceListener(
+                CONSTS.MDNS.TYPE,
+                self.service_event)
+        self._service_thread = threading.Thread(
+                target=self._service_listener.listen,
+                daemon=True,
+                name='service discovery')
+        self._service_thread.start()
+
+    def service_event(self, event, name, data=None):
+        self.mtda.debug(3, "main.service_event()")
+        self.mtda.debug(2, "main.service_event: {} {}".format(event, name))
+
     def load_remote_config(self, parser):
         self.mtda.debug(3, "main.load_remote_config()")
+
+        self.probe_services()
 
         self.conport = int(
             parser.get('remote', 'console', fallback=self.conport))
@@ -1348,6 +1370,9 @@ class MultiTenantDeviceAccess:
         self.mtda.debug(3, "main.stop()")
 
         if self.is_remote is True:
+            if self._service_listener is not None:
+                self.mtda.debug(2, "main.stop: stopping discovery thread")
+                self._service_listener.shutdown()
             return True
 
         # stop sesssion timer
