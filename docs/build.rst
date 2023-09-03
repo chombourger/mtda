@@ -197,7 +197,7 @@ MTDA pre-installed::
 Insert a microSD card to your system and write the generated image::
 
     # Check the microSD card device, /dev/mmcblk0 is used as an example
-    $ sudo dd if=build/tmp/deploy/images/nanopi-neo/mtda-*.wic.img \
+    $ sudo dd if=build/tmp/deploy/images/beaglebone-black/mtda-*.wic.img \
       of=/dev/mmcblk0 bs=8M
 
 (replace ``/dev/mmcblk0`` with the actual SD card device on your system).
