@@ -159,6 +159,7 @@ SPDX-License-Identifier: MIT
       consoleWindow.onresize = function(w, h) {
         termfit.fit()
       }
+      consoleWindow.firstEvent = true
 
       const socket = io.connect("/mtda", {path: window.location.pathname + "socket.io/"});
       const status = document.getElementById("mtda_status");
@@ -169,6 +170,11 @@ SPDX-License-Identifier: MIT
 
       socket.on("console-output", function (data) {
         if (data.output != null) {
+          # keep the console window minimized until something is printed to it
+          if (consoleWindow.firstEvent) {
+            consoleWindow.minimize(false);
+            consoleWindow.firstEvent = false
+          }
           if (consoleWindow.hidden) {
             consoleWindow.show();
           }
