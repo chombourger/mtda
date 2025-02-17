@@ -144,7 +144,9 @@ def storage_open():
     sid = request.args.get('session')
     mtda = app.config['mtda']
     if mtda is not None:
-        mtda.storage_open(session=sid)
+        from mtda.storage.datastream import LocalDataStream
+        stream = LocalDataStream()
+        mtda.storage_open(stream=stream, session=sid)
     return ''
 
 
@@ -155,6 +157,17 @@ def storage_close(data):
     if mtda is not None:
         mtda.storage_close(sid)
         mtda.storage_to_target(sid)
+    return ''
+
+
+@socket.on("storage-flush", namespace="/mtda")
+def storage_flush(data):
+    sid = request.args.get('session')
+    mtda = app.config['mtda']
+    if mtda is not None:
+        size = data['size']
+        mtda.storage_write(b'', sid)
+        mtda.storage_flush(size, sid)
     return ''
 
 

@@ -667,13 +667,19 @@ class MultiTenantDeviceAccess:
 
     @Pyro4.expose
     def storage_flush(self, size, session=None):
-        self.mtda.debug(3, "main.storage_flush()")
+        self.mtda.debug(3, f"main.storage_flush({size})")
 
         self.session_ping(session)
         if self.storage is None:
             result = False
         else:
             result = self._writer.flush(size)
+            event = (
+                    CONSTS.STORAGE.INITIALIZED
+                    if result
+                    else CONSTS.STORAGE.CORRUPTED
+            )
+            self._storage_event(event)
 
         self.mtda.debug(3, f"main.storage_flush(): {result}")
         return result
@@ -799,7 +805,7 @@ class MultiTenantDeviceAccess:
         return result
 
     @Pyro4.expose
-    def storage_open(self, session=None):
+    def storage_open(self, stream=None, session=None):
         self.mtda.debug(3, 'main.storage_open()')
 
         self.session_ping(session)
@@ -822,7 +828,11 @@ class MultiTenantDeviceAccess:
                 self._storage_event(CONSTS.STORAGE.OPENED, session)
             except Exception:
                 raise RuntimeError('shared storage could not be opened!')
-            result = self._writer.start(session)
+
+            if stream is None:
+                from mtda.storage.datastream import NetworkDataStream
+                stream = NetworkDataStream(self.dataport)
+            result = self._writer.start(session, stream)
 
         self.mtda.debug(3, f'main.storage_open(): {result}')
         return result
@@ -893,6 +903,15 @@ class MultiTenantDeviceAccess:
         return result
 
         self.mtda.debug(3, f"main.storage_swap(): {str(result)}")
+        return result
+
+    def storage_write(self, data, session=None):
+        self.mtda.debug(3, "main.storage_write()")
+
+        self.session_ping(session)
+        result = self._writer.enqueue(data, callback=self._storage_event)
+
+        self.mtda.debug(3, f"main.storage_write(): {result}")
         return result
 
     def systemd_configure(self):
@@ -1449,7 +1468,7 @@ class MultiTenantDeviceAccess:
         self.mtda.debug(3, "main.post_configure_storage()")
 
         from mtda.storage.writer import AsyncImageWriter
-        self._writer = AsyncImageWriter(self, storage, self.dataport)
+        self._writer = AsyncImageWriter(self, storage)
 
         import atexit
         atexit.register(self.storage_close)
