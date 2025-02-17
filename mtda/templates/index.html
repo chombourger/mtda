@@ -1,5 +1,5 @@
 <!---
-Copyright (C) 2023 Siemens Digital Industries Software
+Copyright (C) 2025 Siemens AG
 SPDX-License-Identifier: MIT
 -->
 <html lang="en">
@@ -269,10 +269,21 @@ SPDX-License-Identifier: MIT
           case 'OPENED':
             if (localStorage.getItem('session') == data) {
               if (selectedFile) {
+                maySend = true;
                 upload.innerHTML = 'Uploading...'
                 uploadSelectedFile();
               }
             }
+            break;
+          case 'INITIALIZED':
+            socket.emit("storage-close", { });
+            uploadWindow.hide();
+            break;
+          case 'QLOW':
+            maySend = true;
+            break;
+          case 'QHIGH':
+            maySend = false;
             break;
           default:
             storage_status.innerHTML = "unknown_document"
@@ -283,6 +294,7 @@ SPDX-License-Identifier: MIT
       const dropzone = document.getElementById('dropzone');
       const upload = document.getElementById('upload');
       let selectedFile = null;
+      let maySend = false;
 
       ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropzone.addEventListener(eventName, (e) => e.preventDefault());
@@ -310,29 +322,32 @@ SPDX-License-Identifier: MIT
       }
 
       async function uploadSelectedFile() {
-        const sendFileInChunks = (file) => {
+        async function sendFileInChunks(file) {
+          localStorage.debug = 'socket.io-client';
           let offset = 0;
           const reader = new FileReader();
 
-          const readNextChunk = () => {
-            const slice = file.slice(offset, offset + CHUNK_SIZE);
-            reader.readAsArrayBuffer(slice);
-          };
-
-          reader.onload = async (event) => {
-            socket.emit("storage-write", { data: event.target.result });
-            offset += CHUNK_SIZE;
-            await delay(10);
-
-            if (offset < file.size) {
-              readNextChunk();
-            } else {
-              socket.emit("storage-close", { });
-              uploadWindow.hide();
+          while (offset < file.size) {
+            if (!maySend) {
+                await delay(10);
+                continue;
             }
-          };
-          readNextChunk();
-        };
+
+            const chunk = file.slice(offset, offset + CHUNK_SIZE);
+
+            const arrayBuffer = await new Promise((resolve, reject) => {
+              reader.onload = (event) => resolve(event.target.result);
+              reader.onerror = reject;
+              reader.readAsArrayBuffer(chunk);
+            });
+
+            socket.emitWithAck("storage-write", { data: arrayBuffer });
+            offset += CHUNK_SIZE;
+
+            await Promise.resolve();
+          }
+          socket.emit("storage-flush", { size: file.size });
+        }
         await sendFileInChunks(selectedFile);
       };
     </script>
