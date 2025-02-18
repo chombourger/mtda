@@ -26,12 +26,6 @@ import time
 import mtda.constants as CONSTS
 from mtda import __version__
 
-try:
-    www_support = True
-    import mtda.www
-except ModuleNotFoundError:
-    www_support = False
-
 
 DEFAULT_PREFIX_KEY = 'ctrl-a'
 DEFAULT_PASTEBIN_EP = "http://pastebin.com/api/api_post.php"
@@ -1403,11 +1397,14 @@ class MultiTenantDeviceAccess:
                     "scripts.power_off()")
             self._load_device_scripts()
 
-            # web-base UI
-            if www_support is True:
+            # web-based UI
+            try:
+                import mtda.www
                 self._www = mtda.www.Service(self)
                 if parser.has_section('www'):
                     self.load_www_config(parser)
+            except ModuleNotFoundError:
+                pass
 
     def load_main_config(self, parser):
         self.mtda.debug(3, "main.load_main_config()")
@@ -1569,9 +1566,7 @@ class MultiTenantDeviceAccess:
 
     def load_www_config(self, parser):
         self.mtda.debug(3, "main.load_www_config()")
-
-        if www_support is True:
-            self._www.configure(dict(parser.items('www')))
+        self._www.configure(dict(parser.items('www')))
 
     def notify(self, what, info):
         self.mtda.debug(4, f"main.notify({what},{info})")
