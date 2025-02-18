@@ -9,11 +9,14 @@
 # SPDX-License-Identifier: MIT
 # ---------------------------------------------------------------------------
 
+import asyncio
 import threading
 
 
 class RepeatTimer(threading.Timer):
     def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         while not self.finished.wait(self.interval):
             self.function(*self.args, **self.kwargs)
 

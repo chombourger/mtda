@@ -131,6 +131,10 @@ class AsyncImageWriter:
     def worker(self):
         self.mtda.debug(3, "storage.writer.worker()")
 
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
         mtda = self.mtda
         received = 0
         tries = CONSTS.WRITER.RECV_RETRIES
@@ -178,8 +182,10 @@ class AsyncImageWriter:
                     break
 
             except Exception as e:
+                import traceback
                 self._failed = True
                 mtda.debug(1, f"storage.writer.worker(): {e}")
+                mtda.debug(1, traceback.format_exc())
                 break
 
         self._receiving = False

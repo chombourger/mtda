@@ -168,7 +168,6 @@ SPDX-License-Identifier: MIT
     </script>
     <script src="./assets/xterm.js"></script>
     <script src="./assets/addon-fit.js"></script>
-    <script src="./assets/socket.io.min.js"></script>
     <script type="module" crossorigin="anonymous">
       const term = new Terminal({
         cursorBlink: true,
@@ -186,28 +185,27 @@ SPDX-License-Identifier: MIT
         termfit.fit()
       }
 
-      const socket = io.connect("/mtda", {path: window.location.pathname + "socket.io/"});
       const status = document.getElementById("mtda_status");
       const version = document.getElementById("mtda_version");
       const video = document.getElementById("video");
       const power_status = document.getElementById("power-status-icon")
       const storage_status = document.getElementById("storage-status-icon")
 
-      socket.on("console-output", function (data) {
+      function console_output(data) {
         if (data.output != null) {
           if (consoleWindow.hidden) {
             consoleWindow.show();
           }
           term.write(data.output);
         }
-      });
+      }
 
-      socket.on("mtda-version", function (data) {
+      function mtda_version(data) {
         version.textContent = 'Version ' + data.version
-      });
+      }
 
       import { vnc_load } from './assets/vnc.js'
-      socket.on("video-info", function (info) {
+      function video_info(info) {
         if (videoWindow.hidden) {
           videoWindow.show();
         }
@@ -224,60 +222,99 @@ SPDX-License-Identifier: MIT
           video.innerHTML = '<img src="' + url + '" />'
           document.getElementById('vnc_status').innerHTML = '<span style="color: green;"><b>Video</b></span>';
         }
-      });
+      }
 
-      socket.on("connect", () => {
+      const socket = new WebSocket(`ws://${window.location.host}/mtda`);
+
+      socket.addEventListener("open", () => {
         status.innerHTML = '<span style="color: green;"><b>Connected</b></span>';
       });
 
-      socket.on("disconnect", () => {
+      socket.addEventListener("close", () => {
         status.innerHTML = '<span style="color: #ff8383;"><b>Disconnected</b></span>';
       });
 
-      socket.on("session", (data) => {
-        localStorage.setItem('session', data.id);
+      socket.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          for (const key in data) {
+            const message = data[key];
+            switch(key) {
+              case 'POWER': power_event(message); break;
+              case 'SESSION': ignore_message(message); break;
+              case 'STORAGE': storage_event(message); break;
+              case 'console-output': console_output(message); break;
+              case 'mtda-version': mtda_version(message); break;
+              case 'session': session_set_id(message); break;
+              case 'video-info': video_info(message); break;
+              default:
+                console.error('unhandled message ' + key);
+                break;
+            }
+          }
+        } catch (error) {
+          console.error("Failed to parse message:", event.data);
+          console.error(error);
+        }
       });
 
-      socket.on("power-event", (data) => {
+      function ignore_message(data) {
+      }
+
+      function session_set_id(data) {
+        localStorage.setItem('session', data.id);
+      }
+
+      function session_get_id(data) {
+        return localStorage.getItem('session');
+      }
+
+      function power_event(data) {
         switch(data.event) {
           case 'ON': power_status.innerHTML = "power_off"; break;
           case 'OFF': power_status.innerHTML = "power"; break;
           default: power_status.innerHTML = "help"
         }
-      });
+      }
 
-      socket.on("storage-event", (data) => {
-        data = data.event.split(" ")
-        event = data[0]
-        data = data.splice(1).join(" ")
+      function storage_event(data) {
+        data = data.event.split(" ");
+        event = data[0];
+        data = data.splice(1).join(" ");
         if (event == 'UNLOCKED') {
-          event = data
+          event = data;
         }
         switch(event) {
           case 'HOST':
             storage_status.innerHTML = "save";
-            storage_status.title = "switch storage to target"
+            storage_status.title = "switch storage to target";
             break;
           case 'TARGET':
             storage_status.innerHTML = "eject";
-            storage_status.title = "switch storage to host"
+            storage_status.title = "switch storage to host";
             break;
           case 'LOCKED':
             storage_status.innerHTML = "no_sim";
-            storage_status.title = data
+            storage_status.title = data;
             break;
           case 'OPENED':
             if (localStorage.getItem('session') == data) {
               if (selectedFile) {
                 maySend = true;
-                upload.innerHTML = 'Uploading...'
-                uploadSelectedFile();
+                upload.innerHTML = 'Uploading...';
+                uploadSelectedFile(selectedFile);
               }
             }
             break;
+          case 'CORRUPTED':
           case 'INITIALIZED':
-            socket.emit("storage-close", { });
-            uploadWindow.hide();
+            $.getJSON('./storage-close', {
+              session: localStorage.getItem('session')
+            }).done(function(data) {
+              uploadWindow.hide();
+            }).fail(function(jqXHR, textStatus, errorThrown) {
+              console.error('Upload failed:', textStatus, errorThrown);
+            });
             break;
           case 'QLOW':
             maySend = true;
@@ -286,10 +323,11 @@ SPDX-License-Identifier: MIT
             maySend = false;
             break;
           default:
-            storage_status.innerHTML = "unknown_document"
-            storage_status.title = "storage status unknown"
+            storage_status.innerHTML = "unknown_document";
+            storage_status.title = "storage status unknown";
         }
-      });
+      }
+
       const CHUNK_SIZE = 512 * 1024;
       const dropzone = document.getElementById('dropzone');
       const upload = document.getElementById('upload');
@@ -321,35 +359,32 @@ SPDX-License-Identifier: MIT
         return new Promise(resolve => setTimeout(resolve, ms));
       }
 
-      async function uploadSelectedFile() {
+      async function uploadSelectedFile(selectedFile) {
         async function sendFileInChunks(file) {
-          localStorage.debug = 'socket.io-client';
           let offset = 0;
           const reader = new FileReader();
 
           while (offset < file.size) {
             if (!maySend) {
-                await delay(10);
-                continue;
+              console.warn('may not send data at this time');
+              await delay(1000);
+              continue;
             }
 
             const chunk = file.slice(offset, offset + CHUNK_SIZE);
+            const data = await chunk.arrayBuffer();
+            socket.send(data);
 
-            const arrayBuffer = await new Promise((resolve, reject) => {
-              reader.onload = (event) => resolve(event.target.result);
-              reader.onerror = reject;
-              reader.readAsArrayBuffer(chunk);
-            });
-
-            socket.emitWithAck("storage-write", { data: arrayBuffer });
             offset += CHUNK_SIZE;
-
-            await Promise.resolve();
+            await delay(5);
           }
-          socket.emit("storage-flush", { size: file.size });
+          socket.send(new Uint8Array([]));
+          $.getJSON('./storage-flush', {
+            size: file.size, session: localStorage.getItem('session')
+          }, function(data) { });
         }
         await sendFileInChunks(selectedFile);
-      };
+      }
     </script>
   </body>
 </html>
