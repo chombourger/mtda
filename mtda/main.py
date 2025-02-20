@@ -1752,7 +1752,7 @@ class MultiTenantDeviceAccess:
 
         result = None
         if self._session_manager is not None:
-            result = self._session_manager.check(session)
+            result = self._session_manager.ping(session)
 
         now = time.monotonic()
         if self._power_expiry is not None and now > self._power_expiry:
